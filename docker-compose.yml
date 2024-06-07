@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15.0
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: b3e2&AjT!%uW
+    ports:
+      - "5432:5432"
+

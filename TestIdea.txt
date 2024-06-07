@@ -1,0 +1,68 @@
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.transaction.annotation.Transactional;
+
+import javax.persistence.EntityManager;
+import java.util.concurrent.CountDownLatch;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+@DataJpaTest
+public class EntityLockTest {
+
+    @Autowired
+    private EntityManager entityManager;
+
+    @Autowired
+    private YourEntityRepository yourEntityRepository;
+
+    @Test
+    @Transactional
+    @DirtiesContext
+    public void testLocking() throws InterruptedException {
+        // 1. Set up test data
+        YourEntity entity = new YourEntity();
+        entity.setName("Test Entity");
+        entityManager.persist(entity);
+        entityManager.flush();
+
+        // 2. Invoke the method annotated with @Lock
+        // Assuming yourEntityRepository.findByIdWithLock is the method annotated with @Lock
+        YourEntity lockedEntity = yourEntityRepository.findByIdWithLock(entity.getId());
+
+        // Create a latch to synchronize the modifying thread
+        CountDownLatch modifyingLatch = new CountDownLatch(1);
+
+        // 3. Attempt to modify the entity in another thread
+        Thread modifyingThread = new Thread(() -> {
+            // Open the latch to allow the modifying thread to proceed
+            modifyingLatch.countDown();
+            // Try to modify the entity
+            YourEntity anotherEntity = yourEntityRepository.findById(entity.getId()).orElseThrow();
+            anotherEntity.setName("Modified Entity");
+            entityManager.merge(anotherEntity);
+            entityManager.flush();
+        });
+        modifyingThread.start();
+
+        // Wait for the modifying thread to start
+        modifyingLatch.await();
+
+        // 4. Verify that the modifying thread is blocked
+        // It shouldn't have completed its modification yet
+        Thread.sleep(1000); // Adjust time as needed to ensure modifyingThread has attempted write
+        YourEntity modifiedEntity = yourEntityRepository.findById(entity.getId()).orElseThrow();
+        assertEquals("Test Entity", modifiedEntity.getName());
+
+         entityManager.getTransaction().commit();
+
+        / Wait for the modifying thread to complete its operation
+        modifyingThread.join();
+
+        // 5. Verify that the modification has taken effect
+        YourEntity modifiedEntity = yourEntityRepository.findById(entity.getId()).orElseThrow();
+        assertEquals("Modified Entity", modifiedEntity.getName());
+    }
+}
